@@ -1,0 +1,138 @@
+name: ✅ RDP Max 60H (Optimasi Performa)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tailscale_auth_key:
+        description: 'Masukkan Tailscale Auth Key'
+        required: true
+        type: string
+
+jobs:
+  extended-rdp-session:
+    runs-on: windows-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: ⚙️ Configure OS & RDP for Best Performance
+        shell: powershell
+        run: |
+          # 1. Nonaktifkan Tampilan Visual Windows untuk performa RDP yang lebih baik
+          Write-Host "Mengatur Windows untuk Performa Terbaik..."
+          # Menggunakan perintah sistem untuk mengatur visual ke 'best performance'
+          $userKey = "HKCU:\Control Panel\Desktop\WindowMetrics"
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90, 0x12, 0x01, 0x80)) -Type Binary
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "DragFullWindows" -Value 0
+          
+          # 2. Configure RDP & Firewall (Digabungkan dengan Optimasi)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                             -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "SecurityLayer" -Value 2 -Force
+          netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall add rule name="RDP-Tailscale" `
+            dir=in action=allow protocol=TCP localport=3389
+
+      - name: 🔐 Create Ephemeral RDP User
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Web
+          $password = [System.Web.Security.Membership]::GeneratePassword(18, 4)
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          $username = "RDP_PERF" 
+          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
+          
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          echo "RDP_USER_CREDENTIALS=User: $username | Password: $password" >> $env:GITHUB_ENV
+          Write-Host "Pengguna $username berhasil dibuat."
+
+      # 🚨 LANGKAH BARU: Menggunakan Caching untuk Instalasi Tailscale
+      - name: 💾 Cache Tailscale Installation
+        id: cache-tailscale
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files\Tailscale
+          key: ${{ runner.os }}-tailscale-1.92.1 
+      
+      - name: ⬇️ Install Tailscale (or Use Cache)
+        shell: powershell
+        run: |
+          if ('${{ steps.cache-tailscale.outputs.cache-hit }}' -eq 'true') {
+            Write-Host "Tailscale ditemukan di cache. Melompati unduhan dan instalasi."
+          } else {
+            # Menggunakan URL rilis GitHub yang stabil jika tidak ada cache
+            $version = "1.92.1" 
+            $tsUrl = "https://github.com/tailscale/tailscale/releases/download/v$version/tailscale-setup-$version-amd64.msi"
+            $installerPath = "$env:TEMP\tailscale.msi"
+            
+            Write-Host "Mengunduh Tailscale versi $version..."
+            Start-BitsTransfer -Source $tsUrl -Destination $installerPath
+            
+            Write-Host "Memulai instalasi..."
+            Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+            
+            Remove-Item $installerPath -Force
+            Write-Host "Instalasi selesai. Akan disimpan ke cache."
+          }
+
+      # ... (Langkah Establish Tailscale Connection dan seterusnya tetap sama)
+      
+      - name: 🔗 Establish Tailscale Connection
+        shell: powershell
+        run: |
+          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          
+          & $tsExe up --authkey=${{ github.event.inputs.tailscale_auth_key }} --hostname=gh-rdp-perf-$env:GITHUB_RUN_ID --timeout=60s
+          
+          $tsIP = $null
+          $startTime = Get-Date
+          while (-not $tsIP -and (Get-Date).Subtract($startTime).TotalSeconds -lt 60) {
+              $tsIP = & $tsExe ip -4
+              if ($tsIP) { break }
+              Start-Sleep -Seconds 5
+          }
+          
+          if (-not $tsIP) {
+              Write-Error "Tailscale IP tidak ditetapkan. Keluar."
+              exit 1
+          }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "Runner terhubung. IP: $tsIP"
+
+      - name: ✨ Display & Maintain Connection (60 Hours)
+        shell: powershell
+        run: |
+          # Output dan loop display tetap sama
+          Write-Host "`n=========================================="
+          Write-Host "=== RDP ACCESS KREDENSIAL ==="
+          Write-Host "Alamat/IP Tailscale: $env:TAILSCALE_IP"
+          Write-Host "Username: RDP_PERF | Password: $(echo $env:RDP_USER_CREDENTIALS | Select-Object -ExpandProperty PSObject.Properties | Where-Object { $_.Name -eq 'Value' } | Select-Object -ExpandProperty Value)"
+          Write-Host "=========================================="
+          
+          $timeoutMinutes = 3600
+          $totalDurationSeconds = $timeoutMinutes * 60
+          $startTime = Get-Date
+          
+          while ((Get-Date).Subtract($startTime).TotalSeconds -lt $totalDurationSeconds) {
+              $secondsRemaining = $totalDurationSeconds - (Get-Date).Subtract($startTime).TotalSeconds
+              $hoursRemaining = [Math]::Floor($secondsRemaining / 3600)
+              $minutesRemaining = [Math]::Floor(($secondsRemaining % 3600) / 60)
+              
+              Write-Host "[$(Get-Date)] Sesi Aktif. Waktu tersisa: ${hoursRemaining}j ${minutesRemaining}m."
+              Start-Sleep -Seconds 300
+          }
+        if: success()
+        
+      - name: 🧹 Cleanup User
+        if: always()
+        shell: powershell
+        run: |
+          $username = "RDP_PERF" 
+          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
+              Remove-LocalUser -Name $username 
+              Write-Host "Pengguna $username telah dihapus."
+          }
+          
