@@ -117,7 +117,7 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          $username = "RDP_RUNNER" 
+          $username = "RDP" 
           if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
               Write-Host "Menghapus pengguna sementara $username..."
               Remove-LocalUser -Name $username 
