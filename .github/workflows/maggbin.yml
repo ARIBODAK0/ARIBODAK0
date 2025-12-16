@@ -21,18 +21,15 @@ jobs:
         with:
           path: |
             C:\Program Files\Tailscale
-            C:\Users\RDP_USER\AppData\Local # Menyimpan data aplikasi lokal
+            C:\Users\RDP_USER\AppData\Local
           key: ${{ runner.os }}-RDP-Data-Key-v1
 
-      # 2. KONFIGURASI DAN OPTIMASI WINDOWS
+      # 2. KONFIGURASI DAN OPTIMASI WINDOWS (Tidak berubah)
       - name: ⚙️ Configure RDP & Firewall
         shell: powershell
         run: |
-          # Optimasi Visual untuk Performa RDP
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90, 0x12, 0x01, 0x80)) -Type Binary -ErrorAction SilentlyContinue
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "DragFullWindows" -Value 0 -ErrorAction SilentlyContinue
-
-          # Konfigurasi RDP & Firewall
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 2 -Force
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
@@ -43,17 +40,14 @@ jobs:
         id: create_user
         shell: powershell
         run: |
-          # --- GANTI PASSWORD INI ---
+          # --- Kredensial Statis ---
           $username = "RDP_USER"
           $password = "RDP_PASS_321" # GANTI DENGAN PASSWORD KUAT ANDA!
           # --------------------------
-          
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-          
           Add-LocalGroupMember -Group "Administrators" -Member $username
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          
           echo "RDP_USERNAME=$username" >> $env:GITHUB_ENV
           echo "RDP_USER_CREDENTIALS=User: $username | Password: $password" >> $env:GITHUB_ENV
 
@@ -62,23 +56,26 @@ jobs:
         shell: powershell
         run: |
           if ('${{ steps.cache-data.outputs.cache-hit }}' -ne 'true') {
-             Write-Host "Cache tidak ditemukan. Melakukan instalasi Tailscale."
              $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.1-amd64.msi"
              $installerPath = "$env:TEMP\tailscale.msi"
              Start-BitsTransfer -Source $tsUrl -Destination $installerPath
              Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
              Remove-Item $installerPath -Force
-          } else {
-             Write-Host "Tailscale dan data pengguna dipulihkan dari cache. Siap digunakan."
           }
 
-      # 5. KONEKSI TAILSCALE
+      # 5. KONEKSI TAILSCALE 🚨 PERBAIKAN HOSTNAME
       - name: 🔗 Establish Tailscale Connection
         shell: powershell
         run: |
           $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          & $tsExe up --authkey=${{ github.event.inputs.tailscale_auth_key }} --hostname=gh-rdp-statik-${{ env.RDP_USERNAME }} --timeout=60s
           
+          # MENGHILANGKAN UNDERSCORE PADA HOSTNAME (RDP_USER menjadi RDP-USER)
+          $hostname = "gh-rdp-statik-$(($env:RDP_USERNAME) -replace '_', '-')"
+          
+          # Perintah koneksi
+          & $tsExe up --authkey=${{ github.event.inputs.tailscale_auth_key }} --hostname=$hostname --timeout=60s
+          
+          # Cek IP dan Exit jika gagal
           $tsIP = $null
           $startTime = Get-Date
           while (-not $tsIP -and (Get-Date).Subtract($startTime).TotalSeconds -lt 60) {
@@ -88,7 +85,7 @@ jobs:
           }
           
           if (-not $tsIP) {
-              Write-Error "Tailscale IP tidak ditetapkan. Keluar."
+              Write-Error "Tailscale gagal login atau mendapatkan IP. Cek Auth Key Anda!"
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
@@ -97,7 +94,6 @@ jobs:
       - name: ✨ Start Background Keep-Alive & Display
         shell: powershell
         run: |
-          # Output ke Annotation (Paling Jelas dan Aman)
           Write-Host "::notice::==================================================="
           Write-Host "::notice::RDP SUCCESS: AKSES KREDENSIAL"
           Write-Host "::notice::IP Tailscale: $env:TAILSCALE_IP"
@@ -112,7 +108,6 @@ jobs:
               }
           }
           
-          # Meluncurkan script Keep-Alive di proses baru yang detached
           Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", $KeepAliveScript
           
           Write-Host "Jaminan keep-alive telah dimulai di latar belakang."
@@ -120,7 +115,7 @@ jobs:
       # 7. HOLDING STEP
       - name: ⏳ Final Holding Step
         shell: powershell
-        run: Start-Sleep -Seconds (4 * 3600) # Tidur 4 jam
+        run: Start-Sleep -Seconds (4 * 3600)
 
       # 8. SAVE CACHE
       - name: 💾 Save Runner Data Cache
