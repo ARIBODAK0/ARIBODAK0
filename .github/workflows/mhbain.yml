@@ -1,31 +1,33 @@
-name: ✅ RDP Max 60H (FINAL - Menggunakan Action Resmi)
+name: ✅ RDP Max 60H (Keep-Alive Dijamin)
 
 on:
   workflow_dispatch:
     inputs:
       tailscale_auth_key:
-        description: 'Masukkan Tailscale Auth Key (Wajib menggunakan Ephemeral Key)'
+        description: 'Masukkan Tailscale Auth Key (Wajib menggunakan Ephemeral Key untuk keamanan)'
         required: true
         type: string
 
 jobs:
   extended-rdp-session:
     runs-on: windows-latest
-    timeout-minutes: 3600
+    timeout-minutes: 3600 # Batas waktu maksimum 60 jam
 
     steps:
-      - name: ⚙️ Configure OS & RDP for Best Performance
+      - name: ⚙️ Configure RDP & Firewall
         shell: powershell
         run: |
-          # Optimasi Windows Visual
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90, 0x12, 0x01, 0x80)) -Type Binary
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "DragFullWindows" -Value 0
+          # 1. Aktifkan RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                             -Name "fDenyTSConnections" -Value 0 -Force
+          # 2. Atur lapisan keamanan RDP ke Negotiate
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "SecurityLayer" -Value 2 -Force
           
-          # Configure RDP & Firewall
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 2 -Force
+          # 3. Aturan Firewall untuk mengizinkan RDP (port 3389)
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall add rule name="RDP-Tailscale" `
+            dir=in action=allow protocol=TCP localport=3389
 
       - name: 🔐 Create Ephemeral RDP User
         id: create_user
@@ -34,50 +36,72 @@ jobs:
           Add-Type -AssemblyName System.Web
           $password = [System.Web.Security.Membership]::GeneratePassword(18, 4)
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
           $username = "RDP_RUNNER" 
           New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
+          
           Add-LocalGroupMember -Group "Administrators" -Member $username
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
           echo "RDP_USER_CREDENTIALS=User: $username | Password: $password" >> $env:GITHUB_ENV
           Write-Host "Pengguna $username berhasil dibuat."
 
-      # 🚨 SOLUSI AKHIR UNTUK INSTALASI: Menggunakan GitHub Action resmi Tailscale
-      - name: ⬇️ Install and Connect Tailscale
-        id: tailscale-up
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.CLIENT_ID }} # Tidak digunakan, tetapi perlu didefinisikan untuk action
-          oauth-secret: ${{ secrets.CLIENT_SECRET }} # Tidak digunakan
-          authkey: ${{ github.event.inputs.tailscale_auth_key }}
-          tags: tag:github-runner
-
-      - name: 🔗 Get Tailscale IP
+      - name: ⬇️ Install Tailscale (URL Khusus)
         shell: powershell
         run: |
-          # Action resmi Tailscale membuat 'tailscale' tersedia di PATH secara otomatis
-          $tsIP = & tailscale ip -4
+          # MENGGUNAKAN URL DARI PERMINTAAN PENGGUNA (pkgs.tailscale.com)
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.1-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          
+          Write-Host "Mencoba mengunduh Tailscale dari $tsUrl..."
+          
+          Start-BitsTransfer -Source $tsUrl -Destination $installerPath
+          
+          Write-Host "Unduhan selesai. Memulai instalasi..."
+          
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          Remove-Item $installerPath -Force
+          Write-Host "Tailscale berhasil diinstal."
+
+      - name: 🔗 Establish Tailscale Connection
+        shell: powershell
+        run: |
+          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          
+          & $tsExe up --authkey=${{ github.event.inputs.tailscale_auth_key }} --hostname=gh-rdp-runner-$env:GITHUB_RUN_ID --timeout=60s
+          
+          $tsIP = $null
+          $startTime = Get-Date
+          while (-not $tsIP -and (Get-Date).Subtract($startTime).TotalSeconds -lt 60) {
+              $tsIP = & $tsExe ip -4
+              if ($tsIP) { break }
+              Start-Sleep -Seconds 5
+          }
+          
           if (-not $tsIP) {
-              Write-Error "Tailscale IP tidak ditetapkan oleh Action. Keluar."
+              Write-Error "Tailscale IP tidak ditetapkan. Keluar."
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-          Write-Host "Runner terhubung. IP: $tsIP"
+          Write-Host "Runner terhubung ke Tailscale. IP: $tsIP"
 
-
-      # 🚨 SOLUSI UNTUK KEEP-ALIVE: Memulai loop di Background (Tidak akan mati jika RDP ditutup)
+      # 🚨 PERUBAHAN KRITIS: Memisahkan Log Display dari Proses Keep-Alive
       - name: ✨ Start Background Keep-Alive & Display
         shell: powershell
         run: |
           Write-Host "`n=========================================="
           Write-Host "=== RDP ACCESS KREDENSIAL ==="
+          Write-Host "Waktu Maksimum: 60 Jam. RUNNER TIDAK AKAN MATI JIKA SESI RDP DITUTUP."
           Write-Host "Alamat/IP Tailscale: $env:TAILSCALE_IP"
           Write-Host "$env:RDP_USER_CREDENTIALS"
           Write-Host "=========================================="
           
-          # Skrip yang akan dijalankan di latar belakang (durasi 60 jam dalam detik)
+          # Skrip yang berisi loop 60 jam, dijalankan sebagai job latar belakang
           $BackgroundScript = {
               param($Duration)
               $StartTime = Get-Date
+              # Loop utama yang menjaga job GitHub Actions tetap hidup
               while ((Get-Date).Subtract($StartTime).TotalSeconds -lt $Duration) {
                   Start-Sleep -Seconds 300 # Sleep 5 menit
               }
@@ -85,15 +109,16 @@ jobs:
           
           $totalDurationSeconds = 3600 * 60 # 60 jam
           
-          # Mulai script di proses PowerShell baru yang terlepas (detached)
+          # Mulai script di proses PowerShell baru (detached) yang tersembunyi.
+          # Proses inilah yang menjaga job tetap hidup.
           Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", "Start-Job -ScriptBlock { $BackgroundScript -Duration $totalDurationSeconds } | Wait-Job"
           
           Write-Host "Jaminan keep-alive telah dimulai di latar belakang. Anda sekarang dapat menutup jendela terminal ini."
 
+      # Langkah penahan (Hold Step) untuk memberi waktu proses background bekerja
       - name: ⏳ Final Holding Step
         run: sleep 4h
 
-      # 🚨 CLEANUP: Kembali ke logika cleanup yang paling sederhana dan benar
       - name: 🧹 Cleanup User
         if: always()
         shell: powershell
