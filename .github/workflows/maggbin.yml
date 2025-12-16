@@ -1,0 +1,83 @@
+name: ✅ RDP Max 60H (Persistensi Data & Anti-Kill)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tailscale_auth_key:
+        description: 'Masukkan Tailscale Auth Key (Wajib menggunakan Ephemeral Key untuk keamanan)'
+        required: true
+        type: string
+
+jobs:
+  extended-rdp-session:
+    runs-on: windows-latest
+    timeout-minutes: 3600
+
+    steps:
+      # 🚨 SOLUSI PERSISTENSI DATA 1/2: Memuat Cache
+      - name: 💾 Restore Runner Data Cache
+        id: cache-data
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\Program Files\Tailscale
+            C:\Users\RDP_USER\AppData\Local # Menyimpan data aplikasi lokal (termasuk folder Tailscale di AppData)
+            C:\Users\RDP_USER\Desktop # Menyimpan file di Desktop (opsional)
+          key: ${{ runner.os }}-RDP-Data-Key-v1
+
+      - name: ⚙️ Configure RDP & Firewall
+        shell: powershell
+        run: |
+          # [Konfigurasi RDP & Optimasi Performa]
+
+      - name: 🔐 Create Ephemeral RDP User (Static Credentials)
+        id: create_user
+        shell: powershell
+        run: |
+          # --- Kredensial Statis ---
+          $username = "RDP_USER"
+          $password = "RDP_PASS_321" # GANTI DENGAN PASSWORD KUAT ANDA!
+          # --------------------------
+          
+          # [Logika Pembuatan Pengguna]
+
+      - name: ⬇️ Install Tailscale (or Restore from Cache)
+        shell: powershell
+        run: |
+          # Jika cache berhasil dimuat, instalasi dilewati
+          if ('${{ steps.cache-data.outputs.cache-hit }}' -ne 'true') {
+             Write-Host "Cache tidak ditemukan. Melakukan instalasi Tailscale."
+             $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.1-amd64.msi"
+             $installerPath = "$env:TEMP\tailscale.msi"
+             Start-BitsTransfer -Source $tsUrl -Destination $installerPath
+             Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+             Remove-Item $installerPath -Force
+          } else {
+             Write-Host "Tailscale dan data pengguna dipulihkan dari cache. Siap digunakan."
+          }
+
+      # [Langkah Koneksi Tailscale]
+
+      # [Langkah Keep-Alive dan Display]
+
+      - name: ⏳ Final Holding Step
+        shell: powershell
+        run: Start-Sleep -Seconds (4 * 3600)
+
+      # 🚨 SOLUSI PERSISTENSI DATA 2/2: Menyimpan Cache
+      - name: 💾 Save Runner Data Cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            C:\Program Files\Tailscale
+            C:\Users\RDP_USER\AppData\Local
+            C:\Users\RDP_USER\Desktop
+          key: ${{ runner.os }}-RDP-Data-Key-v1
+          
+      - name: 🧹 Cleanup User
+        if: always()
+        shell: powershell
+        run: |
+          # [Logika Penghapusan Pengguna Statis]
+          
