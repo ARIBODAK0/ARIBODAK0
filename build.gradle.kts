@@ -15,3 +15,12 @@ allprojects {
         mavenCentral()
     }
 }
+
+subprojects {
+    configurations.configureEach {
+        resolutionStrategy {
+            force("androidx.transition:transition:1.5.0")
+            force("androidx.viewpager2:viewpager2:1.1.0")
+        }
+    }
+}
