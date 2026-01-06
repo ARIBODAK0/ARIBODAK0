@@ -3,8 +3,6 @@ name: Android Build APK
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   build:
@@ -20,19 +18,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Grant gradlew permission
-        run: chmod +x gradlew
+      # ✅ SETUP GRADLE RESMI (INI KUNCI)
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
 
+      # ✅ BUILD PAKAI GRADLE ASLI
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
-      # 🔍 DEBUG: tampilkan lokasi APK (PENTING)
-      - name: List APK outputs
-        run: |
-          echo "=== APK FILES ==="
-          find . -name "*.apk"
+      # 🔍 BUKTI APK ADA
+      - name: List APK
+        run: find . -name "*.apk"
 
-      # 📦 UPLOAD: wildcard (ANTI ERROR)
+      # 📦 UPLOAD
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
