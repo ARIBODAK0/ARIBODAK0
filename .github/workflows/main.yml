@@ -1,4 +1,4 @@
-name: Android Build APK
+name: Android APK Build
 
 on:
   push:
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Setup JDK 17
@@ -18,19 +18,21 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ✅ SETUP GRADLE RESMI (INI KUNCI)
+      # ✅ SETUP GRADLE RESMI (BUKAN gradlew)
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v3
+        uses: gradle/actions/setup-gradle@v4
 
-      # ✅ BUILD PAKAI GRADLE ASLI
+      # ✅ BUILD APK (INI YANG BENAR-BENAR BUILD)
       - name: Build Debug APK
         run: gradle assembleDebug
 
       # 🔍 BUKTI APK ADA
-      - name: List APK
-        run: find . -name "*.apk"
+      - name: Locate APK
+        run: |
+          echo "APK files found:"
+          find . -name "*.apk"
 
-      # 📦 UPLOAD
+      # 📦 SIMPAN APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
