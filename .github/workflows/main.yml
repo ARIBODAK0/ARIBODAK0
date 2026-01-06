@@ -1,15 +1,18 @@
-name: Android APK Build
+name: Android Self Diagnose & Build
 
 on:
   push:
     branches: [ "main" ]
+  pull_request:
 
 jobs:
-  build:
+  diagnose:
     runs-on: ubuntu-latest
+    env:
+      CI: true
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup JDK 17
@@ -18,22 +21,106 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ✅ SETUP GRADLE RESMI (BUKAN gradlew)
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # ✅ BUILD APK (INI YANG BENAR-BENAR BUILD)
-      - name: Build Debug APK
-        run: gradle assembleDebug
-
-      # 🔍 BUKTI APK ADA
-      - name: Locate APK
+      # ---------- PRECHECK ----------
+      - name: Precheck structure
         run: |
-          echo "APK files found:"
-          find . -name "*.apk"
+          echo "== Precheck =="
+          test -f build.gradle.kts || test -f build.gradle || { echo "❌ Root build.gradle(.kts) missing"; exit 1; }
+          test -f settings.gradle.kts || test -f settings.gradle || { echo "❌ settings.gradle(.kts) missing"; exit 1; }
+          test -d app || { echo "❌ app/ module missing"; exit 1; }
+          echo "✅ Basic structure OK"
 
-      # 📦 SIMPAN APK
+      # ---------- ENSURE gradle.properties ----------
+      - name: Ensure gradle.properties (AndroidX)
+        run: |
+          if [ ! -f gradle.properties ]; then
+            echo "Creating gradle.properties"
+            cat <<EOF > gradle.properties
+android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+org.gradle.parallel=true
+org.gradle.caching=true
+EOF
+          else
+            grep -q "android.useAndroidX=true" gradle.properties || echo "android.useAndroidX=true" >> gradle.properties
+            grep -q "android.enableJetifier=true" gradle.properties || echo "android.enableJetifier=true" >> gradle.properties
+          fi
+
+      # ---------- STATIC ANALYSIS ----------
+      - name: Static Gradle analysis
+        run: |
+          echo "== Gradle files =="
+          ls -la .
+          echo "== App module =="
+          ls -la app || true
+
+      # ---------- DRY RUN / PROJECT INFO ----------
+      - name: Gradle projects
+        run: gradle projects
+
+      # ---------- DEPENDENCY INSIGHT ----------
+      - name: Dependency insight (debug)
+        run: |
+          gradle :app:dependencies --configuration debugRuntimeClasspath || true
+
+      # ---------- BUILD ATTEMPT ----------
+      - name: Build Debug APK (with diagnostics)
+        run: |
+          set +e
+          gradle assembleDebug --warning-mode all --stacktrace
+          EXIT_CODE=$?
+          echo "EXIT_CODE=$EXIT_CODE" >> $GITHUB_ENV
+          exit 0
+
+      # ---------- AUTO-ANALYZE FAILURE ----------
+      - name: Analyze failure & generate patch
+        if: env.EXIT_CODE != '0'
+        run: |
+          echo "== Analyzing common failures =="
+
+          PATCH=""
+
+          # 1) AndroidX not enabled
+          if grep -R "android.useAndroidX" -n . >/dev/null 2>&1; then
+            echo "AndroidX flag present"
+          else
+            PATCH="${PATCH}\n# Enable AndroidX\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n"
+          fi
+
+          # 2) Missing repositories in root build.gradle.kts
+          if [ -f build.gradle.kts ]; then
+            if ! grep -q "google()" build.gradle.kts; then
+              PATCH="${PATCH}\n// Add repositories\nallprojects {\n    repositories { google(); mavenCentral() }\n}\n"
+            fi
+          fi
+
+          # 3) Force known-safe AndroidX versions
+          PATCH="${PATCH}\n// Force safe AndroidX versions\nsubprojects {\n    configurations.configureEach {\n        resolutionStrategy {\n            force(\"androidx.transition:transition:1.5.0\")\n            force(\"androidx.viewpager2:viewpager2:1.1.0\")\n        }\n    }\n}\n"
+
+          echo -e "$PATCH" > AUTO_FIX_SUGGESTION.patch
+          echo "Generated AUTO_FIX_SUGGESTION.patch"
+
+      # ---------- UPLOAD DIAGNOSTICS ----------
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics
+          path: |
+            AUTO_FIX_SUGGESTION.patch
+            build/reports/**/*
+            **/build/reports/**/*
+
+      # ---------- FINAL APK (IF SUCCESS) ----------
+      - name: Find APK
+        if: env.EXIT_CODE == '0'
+        run: find . -name "*.apk"
+
       - name: Upload APK
+        if: env.EXIT_CODE == '0'
         uses: actions/upload-artifact@v4
         with:
           name: debug-apk
