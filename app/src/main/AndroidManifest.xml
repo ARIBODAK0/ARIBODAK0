@@ -1,21 +1,20 @@
-<manifest package="com.btcx.vault"
-    xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="false"
-        android:label="BTCX Vault"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        android:label="Vault"
+        android:allowBackup="true"
+        android:supportsRtl="true">
 
-        <activity android:name=".ui.ReceiveActivity" />
-        <activity android:name=".ui.SendActivity" />
-        <activity android:name=".ui.VaultActivity" />
-        <activity android:name=".MainActivity">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
 
+        </activity>
     </application>
+
 </manifest>
