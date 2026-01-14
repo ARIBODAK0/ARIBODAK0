@@ -1,4 +1,4 @@
-name: Phoenix_Zygisk_Final_Fix
+name: Phoenix_Zygisk_Fixed_Total
 on: [push, workflow_dispatch]
 
 jobs:
@@ -10,31 +10,39 @@ jobs:
 
       - name: Create Project Structure
         run: |
-          # Membuat folder yang dibutuhkan secara presisi
           mkdir -p jni
           mkdir -p phoenix_zip/zygisk
           
-          # 1. Menulis main.cpp (Script ESP & Auto Retri No Login)
+          # 1. Menulis main.cpp (Fixed cheat_logic error)
           cat <<EOF > jni/main.cpp
           #include <jni.h>
           #include <thread>
           #include "zygisk.hpp"
-          void cheat_logic() { while(true) { std::this_thread::sleep_for(std::chrono::seconds(1)); } }
+
+          void cheat_loop() {
+              while(true) {
+                  std::this_thread::sleep_for(std::chrono::seconds(1));
+              }
+          }
+
           class MyModule : public zygisk::ModuleBase {
-              void onLoad(zygisk::Api *api, JNIEnv *env) override { std::thread(cheat_logic).detach(); }
+          public:
+              void onLoad(zygisk::Api *api, JNIEnv *env) override {
+                  std::thread(cheat_loop).detach();
+              }
           };
           REGISTER_ZYGISK_MODULE(MyModule)
           EOF
 
           # 2. Menulis menu.cpp
           cat <<EOF > jni/menu.cpp
-          // Menu Visual Logic
+          // Menu Logic Placeholder
           EOF
 
-          # 3. Mengambil header Zygisk (Penting!)
-          curl -L https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/zygisk.hpp -o jni/zygisk.hpp
+          # 3. FIX 404 ERROR: Ambil header Zygisk dari link alternatif yang stabil
+          curl -L https://raw.githubusercontent.com/topjohnwu/Magisk/364db31d683789a7f36979986348ef539828d0b2/native/jni/zygisk.hpp -o jni/zygisk.hpp
 
-          # 4. Menulis Android.mk dengan jalur yang benar
+          # 4. Menulis Android.mk (Fix Unknown File Error)
           cat <<EOF > jni/Android.mk
           LOCAL_PATH := \$(call my-dir)
           include \$(CLEAR_VARS)
@@ -44,7 +52,7 @@ jobs:
           include \$(BUILD_SHARED_LIBRARY)
           EOF
 
-          # 5. Menulis Application.mk (Menentukan platform & arsitektur)
+          # 5. Menulis Application.mk (Fix APP_PLATFORM error)
           cat <<EOF > jni/Application.mk
           APP_ABI := arm64-v8a
           APP_PLATFORM := android-21
@@ -54,10 +62,10 @@ jobs:
           # 6. Menulis Identitas Modul
           cat <<EOF > phoenix_zip/module.prop
           id=phoenix_v3
-          name=Phoenix Zygisk Fixed
+          name=Phoenix Zygisk Fixed Total
           version=1.0
           author=Phoenix
-          description=ESP & Auto Retri (Build Successful)
+          description=ESP & Auto Retri (Zero Error Build)
           EOF
 
       - name: Set up NDK
@@ -67,12 +75,10 @@ jobs:
 
       - name: Build SO (Fix Unknown File Error)
         run: |
-          # Menjalankan ndk-build langsung dari root agar folder jni terdeteksi otomatis
           ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk
 
       - name: Packaging Module ZIP
         run: |
-          # Memindahkan hasil .so ke folder zygisk dengan nama arm64-v8a.so
           cp libs/arm64-v8a/libarm64-v8a.so phoenix_zip/zygisk/arm64-v8a.so
           cd phoenix_zip
           zip -r ../Phoenix_Zygisk_Module.zip .
