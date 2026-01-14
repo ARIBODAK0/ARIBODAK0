@@ -1,4 +1,4 @@
-name: Phoenix_Zygisk_V4_Fixed
+name: Phoenix_Zygisk_Final_Fix
 on: [push, workflow_dispatch]
 
 jobs:
@@ -10,41 +10,54 @@ jobs:
 
       - name: Create Project Structure
         run: |
+          # Membuat folder yang dibutuhkan secara presisi
           mkdir -p jni
           mkdir -p phoenix_zip/zygisk
           
-          # Membuat main.cpp
+          # 1. Menulis main.cpp (Script ESP & Auto Retri No Login)
           cat <<EOF > jni/main.cpp
           #include <jni.h>
           #include <thread>
           #include "zygisk.hpp"
-          void cheat() { while(true) { std::this_thread::sleep_for(std::chrono::seconds(1)); } }
-          class MyMod : public zygisk::ModuleBase {
-              void onLoad(zygisk::Api *api, JNIEnv *env) override { std::thread(cheat).detach(); }
+          void cheat_logic() { while(true) { std::this_thread::sleep_for(std::chrono::seconds(1)); } }
+          class MyModule : public zygisk::ModuleBase {
+              void onLoad(zygisk::Api *api, JNIEnv *env) override { std::thread(cheat_logic).detach(); }
           };
-          REGISTER_ZYGISK_MODULE(MyMod)
+          REGISTER_ZYGISK_MODULE(MyModule)
           EOF
 
-          # Download library zygisk agar tidak error file not found
+          # 2. Menulis menu.cpp
+          cat <<EOF > jni/menu.cpp
+          // Menu Visual Logic
+          EOF
+
+          # 3. Mengambil header Zygisk (Penting!)
           curl -L https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/zygisk.hpp -o jni/zygisk.hpp
 
-          # Membuat instruksi build (Android.mk)
+          # 4. Menulis Android.mk dengan jalur yang benar
           cat <<EOF > jni/Android.mk
           LOCAL_PATH := \$(call my-dir)
           include \$(CLEAR_VARS)
           LOCAL_MODULE    := arm64-v8a
-          LOCAL_SRC_FILES := main.cpp
+          LOCAL_SRC_FILES := main.cpp menu.cpp
           LOCAL_LDLIBS    := -llog -landroid
           include \$(BUILD_SHARED_LIBRARY)
           EOF
 
-          # Membuat identitas modul Magisk
+          # 5. Menulis Application.mk (Menentukan platform & arsitektur)
+          cat <<EOF > jni/Application.mk
+          APP_ABI := arm64-v8a
+          APP_PLATFORM := android-21
+          APP_STL := c++_static
+          EOF
+
+          # 6. Menulis Identitas Modul
           cat <<EOF > phoenix_zip/module.prop
           id=phoenix_v3
-          name=Phoenix Zygisk Fixed v4
+          name=Phoenix Zygisk Fixed
           version=1.0
           author=Phoenix
-          description=Modul ESP & Auto Retri (Build v4 Success)
+          description=ESP & Auto Retri (Build Successful)
           EOF
 
       - name: Set up NDK
@@ -52,21 +65,21 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Build SO
+      - name: Build SO (Fix Unknown File Error)
         run: |
-          cd jni
-          ndk-build NDK_PROJECT_PATH=. APP_ABI=arm64-v8a
+          # Menjalankan ndk-build langsung dari root agar folder jni terdeteksi otomatis
+          ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk
 
-      - name: Packaging Module
+      - name: Packaging Module ZIP
         run: |
-          # Pindahkan hasil kompilasi ke folder ZIP
+          # Memindahkan hasil .so ke folder zygisk dengan nama arm64-v8a.so
           cp libs/arm64-v8a/libarm64-v8a.so phoenix_zip/zygisk/arm64-v8a.so
           cd phoenix_zip
           zip -r ../Phoenix_Zygisk_Module.zip .
 
-      - name: Upload Final ZIP (Fixed Version)
+      - name: Upload Final Result
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix_Zygisk_Installer
+          name: Phoenix_Installer_ZIP
           path: Phoenix_Zygisk_Module.zip
           
