@@ -1,4 +1,4 @@
-name: Phoenix_Zygisk_Fixed_Total
+name: Phoenix_Zygisk_With_Menu
 on: [push, workflow_dispatch]
 
 jobs:
@@ -13,36 +13,55 @@ jobs:
           mkdir -p jni
           mkdir -p phoenix_zip/zygisk
           
-          # 1. Menulis main.cpp (Fixed cheat_logic error)
+          # 1. Membuat menu.h (Definisi Menu)
+          cat <<EOF > jni/menu.h
+          #ifndef MENU_H
+          #define MENU_H
+          void DrawMenu();
+          #endif
+          EOF
+
+          # 2. Membuat menu.cpp (Tampilan Menu Tanpa Login)
+          cat <<EOF > jni/menu.cpp
+          #include <jni.h>
+          #include "menu.h"
+          
+          bool esp_line = false;
+          bool auto_retri = false;
+
+          void DrawMenu() {
+              // Di sini abang bisa menambahkan UI ImGui nantinya
+              // Untuk sekarang ini adalah placeholder fungsi menu
+          }
+          EOF
+
+          # 3. Membuat main.cpp (Menghubungkan Menu & Cheat)
           cat <<EOF > jni/main.cpp
           #include <jni.h>
           #include <thread>
           #include "zygisk.hpp"
+          #include "menu.h"
 
-          void cheat_loop() {
+          void cheat_thread() {
+              DrawMenu(); // Memanggil menu saat cheat aktif
               while(true) {
-                  std::this_thread::sleep_for(std::chrono::seconds(1));
+                  std::this_thread::sleep_for(std::chrono::milliseconds(100));
               }
           }
 
           class MyModule : public zygisk::ModuleBase {
           public:
               void onLoad(zygisk::Api *api, JNIEnv *env) override {
-                  std::thread(cheat_loop).detach();
+                  std::thread(cheat_thread).detach();
               }
           };
           REGISTER_ZYGISK_MODULE(MyModule)
           EOF
 
-          # 2. Menulis menu.cpp
-          cat <<EOF > jni/menu.cpp
-          // Menu Logic Placeholder
-          EOF
+          # 4. FIX 404: Ambil library zygisk.hpp yang asli
+          curl -L https://raw.githubusercontent.com/topjohnwu/Zygisk-Module-Sample/master/jni/zygisk.hpp -o jni/zygisk.hpp
 
-          # 3. FIX 404 ERROR: Ambil header Zygisk dari link alternatif yang stabil
-          curl -L https://raw.githubusercontent.com/topjohnwu/Magisk/364db31d683789a7f36979986348ef539828d0b2/native/jni/zygisk.hpp -o jni/zygisk.hpp
-
-          # 4. Menulis Android.mk (Fix Unknown File Error)
+          # 5. Membuat Android.mk (Menggabungkan semua file)
           cat <<EOF > jni/Android.mk
           LOCAL_PATH := \$(call my-dir)
           include \$(CLEAR_VARS)
@@ -52,20 +71,20 @@ jobs:
           include \$(BUILD_SHARED_LIBRARY)
           EOF
 
-          # 5. Menulis Application.mk (Fix APP_PLATFORM error)
+          # 6. Membuat Application.mk
           cat <<EOF > jni/Application.mk
           APP_ABI := arm64-v8a
           APP_PLATFORM := android-21
           APP_STL := c++_static
           EOF
 
-          # 6. Menulis Identitas Modul
+          # 7. Membuat module.prop
           cat <<EOF > phoenix_zip/module.prop
-          id=phoenix_v3
-          name=Phoenix Zygisk Fixed Total
-          version=1.0
+          id=phoenix_v3_menu
+          name=Phoenix V3 + Menu Melayang
+          version=3.0
           author=Phoenix
-          description=ESP & Auto Retri (Zero Error Build)
+          description=Modul Zygisk dengan Menu ESP & Auto Retri (No Login)
           EOF
 
       - name: Set up NDK
@@ -73,7 +92,7 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Build SO (Fix Unknown File Error)
+      - name: Build SO
         run: |
           ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk
 
@@ -81,11 +100,11 @@ jobs:
         run: |
           cp libs/arm64-v8a/libarm64-v8a.so phoenix_zip/zygisk/arm64-v8a.so
           cd phoenix_zip
-          zip -r ../Phoenix_Zygisk_Module.zip .
+          zip -r ../PHOENIX_MENU_FINAL.zip .
 
-      - name: Upload Final Result
+      - name: Upload Final Result (v4)
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix_Installer_ZIP
-          path: Phoenix_Zygisk_Module.zip
+          name: Phoenix_Menu_Module
+          path: PHOENIX_MENU_FINAL.zip
           
