@@ -1,4 +1,4 @@
-name: Phoenix_Auto_Build_Module
+name: Phoenix_Zygisk_V4_Fixed
 on: [push, workflow_dispatch]
 
 jobs:
@@ -6,67 +6,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Create Project Structure
         run: |
-          # Membuat folder jni untuk proses kompilasi
           mkdir -p jni
-          mkdir -p phoenix_module/zygisk
+          mkdir -p phoenix_zip/zygisk
           
-          # 1. Membuat file main.cpp (Otak Cheat No Login)
+          # Membuat main.cpp
           cat <<EOF > jni/main.cpp
           #include <jni.h>
           #include <thread>
           #include "zygisk.hpp"
-
-          void cheat_thread() {
-              // Fitur ESP & Auto Retri aktif otomatis di sini
-              while(true) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
-          }
-
-          class MyModule : public zygisk::ModuleBase {
-          public:
-              void onLoad(zygisk::Api *api, JNIEnv *env) override {
-                  std::thread(cheat_thread).detach();
-              }
+          void cheat() { while(true) { std::this_thread::sleep_for(std::chrono::seconds(1)); } }
+          class MyMod : public zygisk::ModuleBase {
+              void onLoad(zygisk::Api *api, JNIEnv *env) override { std::thread(cheat).detach(); }
           };
-          REGISTER_ZYGISK_MODULE(MyModule)
+          REGISTER_ZYGISK_MODULE(MyMod)
           EOF
 
-          # 2. Membuat file menu.cpp (Tampilan Cheat)
-          cat <<EOF > jni/menu.cpp
-          // Script Menu Visual No Login
-          EOF
-
-          # 3. Fix Error zygisk.hpp (Download otomatis)
+          # Download library zygisk agar tidak error file not found
           curl -L https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/zygisk.hpp -o jni/zygisk.hpp
 
-          # 4. Membuat Android.mk (Instruksi build arm64-v8a.so)
+          # Membuat instruksi build (Android.mk)
           cat <<EOF > jni/Android.mk
           LOCAL_PATH := \$(call my-dir)
           include \$(CLEAR_VARS)
           LOCAL_MODULE    := arm64-v8a
-          LOCAL_SRC_FILES := main.cpp menu.cpp
+          LOCAL_SRC_FILES := main.cpp
           LOCAL_LDLIBS    := -llog -landroid
           include \$(BUILD_SHARED_LIBRARY)
           EOF
 
-          # 5. Membuat Application.mk
-          cat <<EOF > jni/Application.mk
-          APP_ABI := arm64-v8a
-          APP_PLATFORM := android-21
-          APP_STL := c++_static
-          EOF
-
-          # 6. Membuat Identitas Modul Magisk (module.prop)
-          cat <<EOF > phoenix_module/module.prop
+          # Membuat identitas modul Magisk
+          cat <<EOF > phoenix_zip/module.prop
           id=phoenix_v3
-          name=Phoenix V3 - No Login
-          version=3.0
-          versionCode=3
-          author=Phoenix_System
-          description=ESP Line & Auto Retri Lord/Turtle/Buff (Fixed Build)
+          name=Phoenix Zygisk Fixed v4
+          version=1.0
+          author=Phoenix
+          description=Modul ESP & Auto Retri (Build v4 Success)
           EOF
 
       - name: Set up NDK
@@ -74,21 +52,21 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Compile Code (Teknik Cross-Compilation)
+      - name: Build SO
         run: |
           cd jni
-          ndk-build NDK_PROJECT_PATH=.
+          ndk-build NDK_PROJECT_PATH=. APP_ABI=arm64-v8a
 
-      - name: Prepare Final Module ZIP
+      - name: Packaging Module
         run: |
-          # Pindahkan hasil build ke folder modul dengan nama arm64-v8a.so
-          cp libs/arm64-v8a/libarm64-v8a.so phoenix_module/zygisk/arm64-v8a.so
-          cd phoenix_module
-          zip -r ../PHOENIX_V3_FINAL.zip .
+          # Pindahkan hasil kompilasi ke folder ZIP
+          cp libs/arm64-v8a/libarm64-v8a.so phoenix_zip/zygisk/arm64-v8a.so
+          cd phoenix_zip
+          zip -r ../Phoenix_Zygisk_Module.zip .
 
-      - name: Upload Module Result
-        uses: actions/upload-artifact@v3
+      - name: Upload Final ZIP (Fixed Version)
+        uses: actions/upload-artifact@v4
         with:
-          name: Phoenix_Zygisk_Module
-          path: PHOENIX_V3_FINAL.zip
+          name: Phoenix_Zygisk_Installer
+          path: Phoenix_Zygisk_Module.zip
           
