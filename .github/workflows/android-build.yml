@@ -1,9 +1,9 @@
-name: Build APK - Auto Fix Edition
+name: Build APK
 
 on:
   push:
     paths:
-      - 'HybridMindAI.tar.gz'
+      - '*.tar.gz'
   workflow_dispatch:
 
 jobs:
@@ -11,24 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       
-    - name: Extract project archive
-      run: |
-        echo "📦 Extracting HybridMindAI.tar.gz..."
-        tar -xzf HybridMindAI.tar.gz || {
-          echo "❌ Extraction failed, trying with different options..."
-          tar -xvzf HybridMindAI.tar.gz
-        }
-        echo "✅ Extraction complete!"
-        ls -la
-        cd HybridMindAI
-        echo "📁 Project structure:"
-        find . -type f -name "*.kt" | head -5
-        find . -type f -name "*.gradle*" | head -5
-        
-    - name: Set up JDK 17
+    - name: Extract Archive
+      run: tar -xf *.tar.gz
+      
+    - name: Setup Java
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -37,153 +25,20 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       
-    - name: Fix Gradle Wrapper (Auto-Download if Missing)
+    - name: Download Gradle Wrapper
       run: |
         cd HybridMindAI
-        echo "🔧 Checking Gradle Wrapper..."
+        mkdir -p gradle/wrapper
+        wget -q https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
+        chmod +x gradlew 2>/dev/null || true
         
-        # Check if gradle-wrapper.jar exists
-        if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-          echo "⚠️ gradle-wrapper.jar not found, downloading..."
-          mkdir -p gradle/wrapper
-          curl -L "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar
-                    # Verify download
-          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "✅ gradle-wrapper.jar downloaded successfully"
-            ls -lh gradle/wrapper/gradle-wrapper.jar
-          else
-            echo "❌ Failed to download gradle-wrapper.jar"
-            exit 1
-          fi
-        else
-          echo "✅ gradle-wrapper.jar already exists"
-          ls -lh gradle/wrapper/gradle-wrapper.jar
-        fi
-        
-        # Check if gradlew exists and is executable
-        if [ ! -f gradlew ]; then
-          echo "⚠️ gradlew not found, creating..."
-          cat > gradlew << 'EOF'
-#!/bin/sh
-exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
-EOF
-          chmod +x gradlew
-        else
-          chmod +x gradlew
-          echo "✅ gradlew is executable"
-        fi
-        
-    - name: Verify Gradle Setup
-      run: |
-        cd HybridMindAI
-        echo "🔍 Verifying Gradle setup..."
-        
-        # Show gradle-wrapper.properties
-        if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-          echo "📄 gradle-wrapper.properties content:"
-          cat gradle/wrapper/gradle-wrapper.properties
-        fi
-        
-        # Test gradlew
-        echo "🧪 Testing gradlew..."
-        timeout 60 ./gradlew --version || echo "⚠️ Gradle version check timed out or failed"
-        
-    - name: Create local.properties
+    - name: Build APK
       run: |
         cd HybridMindAI
         echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
-        echo "✅ local.properties created"
+        ./gradlew assembleDebug --no-daemon
         
-    - name: Fix Build Configuration (if needed)
-      run: |
-        cd HybridMindAI        echo "🔧 Checking build configuration..."
-        
-        # Check if build.gradle.kts exists
-        if [ ! -f build.gradle.kts ]; then
-          echo "❌ build.gradle.kts not found!"
-          exit 1
-        fi
-        
-        # Check app/build.gradle.kts
-        if [ ! -f app/build.gradle.kts ]; then
-          echo "❌ app/build.gradle.kts not found!"
-          exit 1
-        fi
-        
-        echo "✅ Build configuration files exist"
-        
-    - name: Build APK with Retry
-      run: |
-        cd HybridMindAI
-        echo "🔨 Building APK..."
-        
-        # Try build with retry logic
-        max_attempts=3
-        attempt=1
-        
-        while [ $attempt -le $max_attempts ]; do
-          echo "📝 Build attempt $attempt of $max_attempts..."
-          
-          if ./gradlew assembleDebug --no-daemon --stacktrace; then
-            echo "✅ Build successful on attempt $attempt!"
-            break
-          else
-            echo "❌ Build failed on attempt $attempt"
-            attempt=$((attempt + 1))
-            
-            if [ $attempt -gt $max_attempts ]; then
-              echo "💥 All build attempts failed!"
-              exit 1
-            fi
-            
-            echo "⏳ Waiting 30 seconds before retry..."
-            sleep 30
-            
-            # Clean and retry
-            ./gradlew clean --no-daemon || true
-          fi
-        done
-        
-        # Verify APK was created
-        if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then          echo "✅ APK created successfully!"
-          ls -lh app/build/outputs/apk/debug/
-        else
-          echo "❌ APK not found after build!"
-          find . -name "*.apk" -type f || true
-          exit 1
-        fi
-        
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v4
       with:
-        name: HybridMindAI-Debug-APK
-        path: HybridMindAI/app/build/outputs/apk/debug/*.apk
-        retention-days: 30
-        
-    - name: Upload Build Logs (if failed)
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs
-        path: |
-          HybridMindAI/build/
-          HybridMindAI/app/build/
-        retention-days: 7
-        
-    - name: Build Summary
-      run: |
-        echo "✅ ===================================="
-        echo "✅ BUILD SUCCESSFUL!"
-        echo "✅ ===================================="
-        echo ""
-        echo "📱 APK Information:"
-        cd HybridMindAI/app/build/outputs/apk/debug/
-        ls -lh *.apk
-        echo ""
-        echo "📥 Download APK from Artifacts:"
-        echo "   1. Go to Actions tab"
-        echo "   2. Click this workflow run"
-        echo "   3. Scroll to 'Artifacts' section"
-        echo "   4. Download 'HybridMindAI-Debug-APK'"
-        echo ""
-        echo "✅ ===================================="
+        name: app-debug.apk
+        path: HybridMindAI/app/build/outputs/apk/debug/app-debug.apk
