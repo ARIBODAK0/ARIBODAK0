@@ -1,4 +1,4 @@
-name: Build APK - Auto Fix
+name: Auto Build APK
 
 on:
   push:
@@ -6,111 +6,102 @@ on:
       - '*.tar.gz'
   workflow_dispatch:
 
+env:
+  PROJECT_DIR: HybridMindAI
+
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract project
+      - name: Extract Archive
         run: |
-          tar -xf *.tar.gz
+          tar -xf *.tar.gz || { echo "Extract failed"; exit 1; }
           ls -la
 
-      - name: Set up JDK 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Fix Gradle Wrapper
+      - name: Auto-Fix Gradle Wrapper
         run: |
-          cd HybridMindAI
+          cd $PROJECT_DIR
           mkdir -p gradle/wrapper
           if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            wget -q https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
-            echo "✅ Downloaded gradle-wrapper.jar"
+            echo "Downloading gradle-wrapper.jar..."
+            curl -sL https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar -o gradle/wrapper/gradle-wrapper.jar
           fi
           chmod +x gradlew 2>/dev/null || true
-
-      - name: Auto-Fix Missing Resources (Safe Mode)
-        run: |
-          cd HybridMindAI
-          
-          echo "🔍 Checking for missing resources..."
-          
-          # Only create if NOT exists
-          if [ ! -f app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml ]; then
-            echo "⚠️ ic_launcher_round.xml missing - creating default..."
-            mkdir -p app/src/main/res/mipmap-anydpi-v26            
-            # Create SIMPLE adaptive icon (minimal)
-            cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml << 'XMLEOF'
-<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@android:color/darker_gray"/>
-    <foreground android:drawable="@android:color/white"/>
-</adaptive-icon>
-XMLEOF
-          else
-            echo "✅ ic_launcher_round.xml already exists"
-          fi
-          
-          # Check colors.xml - only add missing colors
-          if [ ! -f app/src/main/res/values/colors.xml ]; then
-            echo "⚠️ colors.xml missing - creating..."
-            mkdir -p app/src/main/res/values
-            cat > app/src/main/res/values/colors.xml << 'COLOREOF'
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="ic_launcher_background">#616161</color>
-    <color name="ic_launcher_foreground">#FFFFFF</color>
-</resources>
-COLOREOF
-          else
-            echo "✅ colors.xml already exists"
-            # Add missing colors if needed (append only)
-            if ! grep -q "ic_launcher_background" app/src/main/res/values/colors.xml; then
-              echo "⚠️ Adding missing launcher colors..."
-              sed -i '/<\/resources>/i\    <color name="ic_launcher_background">#616161</color>\n    <color name="ic_launcher_foreground">#FFFFFF</color>' app/src/main/res/values/colors.xml
-            fi
-          fi
-          
-          echo "✅ Resource check complete"
-
-      - name: Create local.properties
-        run: |
-          cd HybridMindAI
           echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
-      - name: Build APK (with auto-retry)
+      - name: Auto-Fix Missing Resources
         run: |
-          cd HybridMindAI
-          
-          # Try build
-          if ./gradlew assembleDebug --no-daemon; then
-            echo "✅ Build successful on first try!"
-          else
-            echo "⚠️ First build failed, trying clean build..."
-            ./gradlew clean --no-daemon            ./gradlew assembleDebug --no-daemon --stacktrace
+          cd $PROJECT_DIR
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          mkdir -p app/src/main/res/values
+                    # Create icon if missing
+          if [ ! -f app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml ]; then
+            echo "Creating ic_launcher_round.xml..."
+            printf '<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@android:color/darker_gray"/>\n  <foreground android:drawable="@android:color/white"/>\n</adaptive-icon>' > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
           fi
+          
+          # Create ic_launcher.xml if missing
+          if [ ! -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml ]; then
+            echo "Creating ic_launcher.xml..."
+            printf '<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@android:color/darker_gray"/>\n  <foreground android:drawable="@android:color/white"/>\n</adaptive-icon>' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          fi
+          
+          # Add colors if missing
+          if [ ! -f app/src/main/res/values/colors.xml ]; then
+            echo "Creating colors.xml..."
+            printf '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">#616161</color>\n  <color name="ic_launcher_foreground">#FFFFFF</color>\n</resources>' > app/src/main/res/values/colors.xml
+          fi
+
+      - name: Build APK (Auto-Retry)
+        run: |
+          cd $PROJECT_DIR
+          
+          echo "Starting build..."
+          
+          # First attempt
+          if ./gradlew assembleDebug --no-daemon --stacktrace; then
+            echo "Build successful!"
+            exit 0
+          fi
+          
+          # Second attempt with clean
+          echo "First build failed, cleaning..."
+          ./gradlew clean --no-daemon
+          
+          if ./gradlew assembleDebug --no-daemon --stacktrace; then
+            echo "Build successful after clean!"
+            exit 0
+          fi
+          
+          echo "Build failed after 2 attempts"
+          exit 1
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug.apk
-          path: HybridMindAI/app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Upload Build Logs (if failed)
+          name: HybridMindAI-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+      - name: Upload Error Logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
+          name: error-logs
           path: |
-            HybridMindAI/app/build/outputs/
-            HybridMindAI/build/
+            ${{ env.PROJECT_DIR }}/build/
+            ${{ env.PROJECT_DIR }}/app/build/
+          retention-days: 7
