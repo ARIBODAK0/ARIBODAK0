@@ -1,53 +1,57 @@
-name: Android CI/CD - HybridMind AI
+name: Build APK from Archive
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # Manual trigger
+    paths:
+      - 'HybridMindAI.tar.gz'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
       
+    - name: Extract project archive
+      run: |
+        echo "📦 Extracting HybridMindAI.tar.gz..."
+        tar -xzf HybridMindAI.tar.gz
+        echo "✅ Extraction complete!"
+        ls -la
+        
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
+        cache: 'gradle'
         
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
       
-    - name: Build with Gradle
-      run: ./gradlew build
-      
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug
-      
-    - name: Upload APK Artifact
+    - name: Grant execute permission
+      run: |
+        cd HybridMindAI
+        chmod +x gradlew
+        
+    - name: Build APK
+      run: |
+        cd HybridMindAI
+        echo "🔨 Building APK..."
+        ./gradlew assembleDebug
+        echo "✅ Build complete!"
+        
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: HybridMindAI-Debug
-        path: app/build/outputs/apk/debug/
+        name: HybridMindAI-Debug-APK
+        path: HybridMindAI/app/build/outputs/apk/debug/*.apk
         retention-days: 30
         
-    - name: Create Release (Optional)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: app/build/outputs/apk/debug/*.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build Summary
+    - name: Build Complete Message
       run: |
-        echo "✅ Build Berhasil!"
-        echo "📱 APK siap download di Artifacts"
-        echo "🔗 Link download akan muncul di halaman Actions"
+        echo "✅ BUILD SUCCESSFUL!"
+        echo "📱 APK siap download di section Artifacts"
+        echo "🔗 Buka: Actions → Build APK from Archive → Download"
