@@ -1,0 +1,118 @@
+name: ✅ RDP Max 60H (Final - Random Username)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tailscale_auth_key:
+        description: 'Masukkan Tailscale Auth Key (Wajib menggunakan Ephemeral Key untuk keamanan)'
+        required: true
+        type: string
+
+jobs:
+  extended-rdp-session:
+    runs-on: windows-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: ⚙️ Configure RDP & Firewall
+        shell: powershell
+        run: |
+          # Optimasi Visual untuk Performa RDP
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Value ([byte[]](0x90, 0x12, 0x01, 0x80)) -Type Binary -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "DragFullWindows" -Value 0 -ErrorAction SilentlyContinue
+          # Konfigurasi RDP & Firewall
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 2 -Force
+          netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+      # 🚨 PERUBAHAN KRITIS: Menghasilkan Username Acak
+      - name: 🔐 Create Ephemeral RDP User (Random Username)
+        id: create_user
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Web
+          # Membuat Username Acak 8 karakter (hanya huruf dan angka)
+          $username = [System.Web.Security.Membership]::GeneratePassword(8, 0) -replace '\W', ''
+          
+          # Membuat Password Acak 18 karakter
+          $password = [System.Web.Security.Membership]::GeneratePassword(18, 4)
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Membuat pengguna lokal
+          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
+          
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          # Menyimpan Username dan Password ke Environment Variable
+          echo "RDP_USERNAME=$username" >> $env:GITHUB_ENV
+          echo "RDP_USER_CREDENTIALS=User: $username | Password: $password" >> $env:GITHUB_ENV
+          Write-Host "Pengguna acak $username berhasil dibuat."
+      - name: ⬇️ Install Tailscale (URL Khusus)
+        shell: powershell
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.1-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Start-BitsTransfer -Source $tsUrl -Destination $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+      - name: 🔗 Establish Tailscale Connection
+        shell: powershell
+        run: |
+          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          # Menggunakan hostname unik berdasarkan username acak
+          & $tsExe up --authkey=${{ github.event.inputs.tailscale_auth_key }} --hostname=gh-rdp-${{ env.RDP_USERNAME }} --timeout=60s
+          
+          $tsIP = $null
+          $startTime = Get-Date
+          while (-not $tsIP -and (Get-Date).Subtract($startTime).TotalSeconds -lt 60) {
+              $tsIP = & $tsExe ip -4
+              if ($tsIP) { break }
+              Start-Sleep -Seconds 5
+          }
+          
+          if (-not $tsIP) {
+              Write-Error "Tailscale IP tidak ditetapkan. Keluar."
+              exit 1
+          }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+      - name: ✨ Start Background Keep-Alive & Display
+        shell: powershell
+        run: |
+          Write-Host "`n=========================================="
+          Write-Host "=== RDP ACCESS KREDENSIAL ==="
+          Write-Host "Waktu Maksimum: 60 Jam. Runner tidak akan mati jika sesi RDP ditutup."
+          Write-Host "Alamat/IP Tailscale: $env:TAILSCALE_IP"
+          Write-Host "$env:RDP_USER_CREDENTIALS"
+          Write-Host "=========================================="
+          
+          $KeepAliveScript = {
+              $TotalSeconds = 3600 * 60
+              $StartTime = Get-Date
+              while ((Get-Date).Subtract($StartTime).TotalSeconds -lt $TotalSeconds) {
+                  Start-Sleep -Seconds 300
+              }
+          }
+          
+          Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", $KeepAliveScript
+          
+          Write-Host "Jaminan keep-alive telah dimulai di latar belakang."
+      - name: ⏳ Final Holding Step
+        shell: powershell
+        run: Start-Sleep -Seconds (4 * 3600) # Tidur 4 jam
+
+      # 🚨 CLEANUP KRITIS: Menggunakan Environment Variable RDP_USERNAME untuk Penghapusan
+      - name: 🧹 Cleanup User
+        if: always()
+        shell: powershell
+        run: |
+          # Mengambil username acak yang dibuat di awal
+          $username = $env:RDP_USERNAME 
+          
+          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
+              Write-Host "Menghapus pengguna sementara acak $username..."
+              Remove-LocalUser -Name $username 
+              Write-Host "Pengguna $username telah dihapus."
+          }
+
+          
